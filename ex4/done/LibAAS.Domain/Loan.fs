@@ -3,22 +3,21 @@ open LibAAS.Contracts
 open LibAAS.Domain.DomainTypes
 open System
 
-let handleAtInit stateGetters ((aggId:AggregateId), commandData) = 
-    match commandData with
-    | LoanItem (loanId, userId, itemId, libraryId) -> 
-        itemId |> 
-            (stateGetters.GetInventoryItem
-             >=> function
-                 | ItemInit -> InvalidItem |> fail
-                 | _ ->
-                    let loan = 
-                        { LoanId = loanId
-                          UserId = userId
-                          ItemId = itemId
-                          LibraryId = libraryId }
-                    let now = DateTime.Today
-                    [ItemLoaned (loan, LoanDate now, DueDate (now.AddDays(7.)))] |> ok)
-    | _ -> raise (exn "Implement me")
+let handleAtInit stateGetters ((aggId:AggregateId), (commandData:LoanItem)) = 
+// It is much more safe if we make the type of the command data explcit.
+// It will be checked at compile time that we don't pass a command to the wrong command handler.
+    commandData.ItemId |> 
+        (stateGetters.GetInventoryItem
+            >=> function
+                | ItemInit -> InvalidItem |> fail
+                | _ ->
+                let loan = 
+                    { LoanId = commandData.Id
+                      UserId = commandData.UserId
+                      ItemId = commandData.ItemId
+                      LibraryId = commandData.LibraryId }
+                let now = DateTime.Today
+                [ItemLoaned (loan, LoanDate now, DueDate (now.AddDays(7.)))] |> ok)
 
 let handleAtCreated data ((aggId:AggregateId), commandData) =
     match commandData with
@@ -34,9 +33,9 @@ let handleAtCreated data ((aggId:AggregateId), commandData) =
     | _ -> InvalidState "Loan at created" |> fail
 
 let executeCommand state stateGetters command =
-    match state with
-    | LoanInit -> handleAtInit stateGetters command
-    | LoanCreated data -> command |> handleAtCreated data
+    match state, command with
+    | LoanInit, (id, LoanItem data) -> handleAtInit stateGetters (id, data)
+    | LoanCreated data, cmd -> cmd |> handleAtCreated data
     | _ -> InvalidState "Loan" |> fail
 
 let evolveAtInit = function
